@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { AlertTriangle, ArrowLeft, FileText, Link2, Plus, Save, Trash2 } from 'lucide-react'
@@ -17,6 +17,7 @@ const NEXT_STATES: Record<string, string[]> = {
   MLR_ISSUED: ['CLOSED'],
   ESCALATED: ['UNDER_INVESTIGATION', 'CANCELLED'],
 }
+const TERMINAL_STATUSES = ['CLOSED', 'CANCELLED']
 
 export function MlcCaseDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -43,12 +44,24 @@ export function MlcCaseDetailPage() {
   const [policeStation, setPoliceStation] = useState('')
   const [firNumber, setFirNumber] = useState('')
   const [inquestReportNumber, setInquestReportNumber] = useState('')
-  // Per-document comment for MLR actions
   const [mlrComments, setMlrComments] = useState<Record<string, string>>({})
+  // Separate dirty-tracking for checklist so the save button appears only when changes exist
+  const [checklistDirty, setChecklistDirty] = useState(false)
+  const [checklistSaving, setChecklistSaving] = useState(false)
 
   const record = query.data
   const progress = useMemo(() => checklistProgress(record?.legalChecklist), [record?.legalChecklist])
   const alerts = activeAlerts(record?.alerts)
+  const isTerminal = TERMINAL_STATUSES.includes(record?.status ?? '')
+  const checklistEditable = !isTerminal && record?.status !== 'MLR_ISSUED'
+
+  // Sync local checklist state when record changes (e.g. after save/transition)
+  useEffect(() => {
+    if (record?.legalChecklist) {
+      setChecklist(record.legalChecklist)
+      setChecklistDirty(false)
+    }
+  }, [record?.legalChecklist, record?.updatedAt])
 
   function beginEdit() {
     if (!record) return
@@ -57,7 +70,6 @@ export function MlcCaseDetailPage() {
     setPoliceStation(record.policeStation ?? '')
     setFirNumber(record.firNumber ?? '')
     setInquestReportNumber(record.inquestReportNumber ?? '')
-    setChecklist(record.legalChecklist ?? [])
     setEpisodes(record.episodes ?? [])
     setEdit(true)
   }
@@ -65,9 +77,24 @@ export function MlcCaseDetailPage() {
   function saveChanges() {
     if (!record) return
     update.mutate({ id: record.id, request: { version: record.version, incidentSummary, incidentLocation, policeStation, firNumber, inquestReportNumber, legalChecklist: checklist, episodes } }, {
-      onSuccess: () => { toast.success('MLC case updated'); setEdit(false) },
+      onSuccess: () => { toast.success('MLC case updated'); setEdit(false); setChecklistDirty(false) },
       onError: (error) => toast.error(getErrorMessage(error, 'Could not save MLC changes')),
     })
+  }
+
+  function saveChecklist() {
+    if (!record) return
+    setChecklistSaving(true)
+    update.mutate({ id: record.id, request: { version: record.version, legalChecklist: checklist } }, {
+      onSuccess: () => { toast.success('Checklist saved'); setChecklistDirty(false) },
+      onError: (error) => toast.error(getErrorMessage(error, 'Could not save checklist')),
+      onSettled: () => setChecklistSaving(false),
+    })
+  }
+
+  function onChecklistChange(next: LegalChecklistItem[]) {
+    setChecklist(next)
+    setChecklistDirty(true)
   }
 
   function doTransition() {
@@ -110,7 +137,6 @@ export function MlcCaseDetailPage() {
   if (query.isError || !record) return <div className="mx-auto max-w-2xl p-6"><EmptyState title="MLC case not found" description={getErrorMessage(query.error, 'The case could not be loaded.')} action={<Button onClick={() => navigate('/medico-legal/cases')}>Back to cases</Button>} /></div>
 
   const transitionOptions = NEXT_STATES[record.status] ?? []
-  const isTerminal = ['CLOSED', 'CANCELLED'].includes(record.status)
 
   return <div className="min-h-screen bg-background">
     <header className="border-b border-border bg-card px-4 py-5 sm:px-6">
@@ -140,7 +166,7 @@ export function MlcCaseDetailPage() {
       {alerts.length > 0 && <section className="space-y-2" aria-label="Active alerts">{alerts.map((alert) => <div key={alert.code} className={`flex items-start gap-3 rounded-lg border px-4 py-3 ${alert.severity === 'CRITICAL' ? 'border-destructive/40 bg-destructive/10' : 'border-warning/40 bg-warning/10'}`}><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="text-sm font-medium">{alert.message ?? formatStatus(alert.code)}</p><p className="text-xs text-muted-foreground">{alert.sourceRule ?? alert.code} · raised {formatDateTime(alert.raisedAt)}</p></div></div>)}</section>}
       <nav className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1" aria-label="Case sections">{(['overview', 'checklist', 'episodes', 'mlr'] as const).map((key) => <button type="button" key={key} onClick={() => setTab(key)} className={`rounded-md px-3 py-2 text-xs font-medium ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>{key === 'checklist' ? `Legal checklist (${progress.satisfied}/${progress.total})` : key === 'episodes' ? `Episodes (${record.episodes?.length ?? 0})` : key === 'mlr' ? `MLR (${mlrQuery.data?.length ?? 0})` : 'Overview'}</button>)}</nav>
       {tab === 'overview' && <div className="grid grid-cols-1 gap-5 lg:grid-cols-3"><Card className="lg:col-span-2"><CardHeader><CardTitle>Incident details</CardTitle></CardHeader><CardContent>{edit ? <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Input label="Incident location" value={incidentLocation} onChange={(event) => setIncidentLocation(event.target.value)} /><Input label="Police station" value={policeStation} onChange={(event) => setPoliceStation(event.target.value)} /><Input label="FIR number" value={firNumber} onChange={(event) => setFirNumber(event.target.value)} /><Input label="Inquest report number" value={inquestReportNumber} onChange={(event) => setInquestReportNumber(event.target.value)} /><div className="sm:col-span-2"><Textarea label="Incident summary" rows={5} value={incidentSummary} onChange={(event) => setIncidentSummary(event.target.value)} /></div></div> : <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Info label="Intake source" value={formatStatus(record.intakeSource)} /><Info label="Nature of incident" value={formatStatus(record.natureOfIncident)} /><Info label="Incident date" value={formatDateTime(record.incidentDateTime)} /><Info label="Location" value={record.incidentLocation} /><Info label="Police station" value={record.policeStation} /><Info label="FIR number" value={record.firNumber} mono /><Info label="Investigating officer" value={record.investigatingOfficer} /><Info label="Inquest report" value={record.inquestReportNumber} mono /><div className="sm:col-span-2"><Info label="Summary" value={record.incidentSummary} /></div></dl>}</CardContent></Card><Card><CardHeader><CardTitle>Legal readiness</CardTitle></CardHeader><CardContent><div className="mb-3 flex items-center justify-between text-sm"><span>Checklist completion</span><strong>{progress.satisfied}/{progress.total}</strong></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress.total ? (progress.satisfied / progress.total) * 100 : 0}%` }} /></div><p className="mt-3 text-xs text-muted-foreground">Required gates are validated by the backend before every transition.</p><Button variant="outline" className="mt-4 w-full" onClick={() => setTab('checklist')}>Review checklist</Button></CardContent></Card></div>}
-      {tab === 'checklist' && <ChecklistPanel items={edit ? checklist : (record.legalChecklist ?? [])} editable={edit} onChange={setChecklist} />}
+      {tab === 'checklist' && <ChecklistPanel items={checklist} editable={checklistEditable} onChange={onChecklistChange} dirty={checklistDirty} saving={checklistSaving} onSave={saveChecklist} />}
       {tab === 'episodes' && <EpisodesPanel episodes={edit ? episodes : (record.episodes ?? [])} editable={edit} onChange={setEpisodes} />}
       {tab === 'mlr' && <MlrPanel mlrQuery={mlrQuery} caseVersion={record.version} documents={mlrQuery.data ?? []} onGenerate={doGenerate} generating={generate.isPending} comments={mlrComments} getComment={getComment} setComment={setComment} />}
     </main>
@@ -151,8 +177,55 @@ export function MlcCaseDetailPage() {
 
 function Info({ label, value, mono }: { label: string; value?: string | number | null; mono?: boolean }) { return <div><dt className="text-xs font-medium text-muted-foreground">{label}</dt><dd className={`mt-1 text-sm ${mono ? 'font-mono text-xs' : ''}`}>{value || '—'}</dd></div> }
 
-function ChecklistPanel({ items, editable, onChange }: { items: LegalChecklistItem[]; editable: boolean; onChange: (items: LegalChecklistItem[]) => void }) {
-  return <Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle>Legal checklist and alerts</CardTitle><p className="mt-1 text-xs text-muted-foreground">Mark evidence-backed gates satisfied. Completion metadata is recorded by the backend.</p></div><Badge variant={checklistProgress(items).complete ? 'success' : 'warning'}>{checklistProgress(items).satisfied}/{items.length} satisfied</Badge></CardHeader><CardContent className="space-y-2">{items.length === 0 ? <EmptyState title="Checklist not returned" description="Reload the case to retrieve its legal gates." /> : items.map((item, index) => <div key={item.code} className="flex items-start gap-3 rounded-lg border border-border p-3"><input type="checkbox" className="mt-1" checked={Boolean(item.satisfied)} disabled={!editable} onChange={(event) => onChange(items.map((current, currentIndex) => currentIndex === index ? { ...current, satisfied: event.target.checked } : current))} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{item.description ?? item.code}</span>{item.mandatory && <Badge variant="warning">Mandatory</Badge>}<Badge variant="secondary">{formatStatus(item.requiredAtStage)}</Badge></div><p className="mt-1 font-mono text-[11px] text-muted-foreground">{item.code}</p>{item.satisfied && <p className="mt-1 text-xs text-success">Satisfied by {item.satisfiedBy ?? 'operator'} · {formatDateTime(item.satisfiedAt)}</p>}</div>{editable && <Input className="w-44" placeholder="Evidence ref" value={item.evidenceRef ?? ''} onChange={(event) => onChange(items.map((current, currentIndex) => currentIndex === index ? { ...current, evidenceRef: event.target.value } : current))} />}</div>)}</CardContent></Card>
+function ChecklistPanel({ items, editable, onChange, dirty, saving, onSave }: {
+  items: LegalChecklistItem[]
+  editable: boolean
+  onChange: (items: LegalChecklistItem[]) => void
+  dirty: boolean
+  saving: boolean
+  onSave: () => void
+}) {
+  const progress = checklistProgress(items)
+  return <Card>
+    <CardHeader className="flex-row items-center justify-between">
+      <div>
+        <CardTitle>Legal checklist and alerts</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {editable ? 'Check items as evidence is confirmed. Already-satisfied items stay locked.' : 'This case is in a terminal state; checklist is read-only.'}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <Badge variant={progress.complete ? 'success' : 'warning'}>{progress.satisfied}/{progress.total} satisfied</Badge>
+        {editable && <Button size="sm" onClick={onSave} disabled={!dirty} loading={saving}><Save className="h-3 w-3" /> Save checklist</Button>}
+      </div>
+    </CardHeader>
+    <CardContent className="space-y-2">
+      {items.length === 0 ? <EmptyState title="Checklist not returned" description="Reload the case to retrieve its legal gates." /> : items.map((item, index) => {
+        const locked = Boolean(item.satisfied) // already-satisfied items stay read-only
+        const checkable = editable && !locked
+        return <div key={item.code} className="flex items-start gap-3 rounded-lg border border-border p-3">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={Boolean(item.satisfied)}
+            disabled={!checkable}
+            onChange={(event) => onChange(items.map((current, currentIndex) => currentIndex === index ? { ...current, satisfied: event.target.checked } : current))}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">{item.description ?? item.code}</span>
+              {item.mandatory && <Badge variant="warning">Mandatory</Badge>}
+              <Badge variant="secondary">{formatStatus(item.requiredAtStage)}</Badge>
+              {locked && <Badge variant="success">Done</Badge>}
+            </div>
+            <p className="mt-1 font-mono text-[11px] text-muted-foreground">{item.code}</p>
+            {item.satisfied && <p className="mt-1 text-xs text-success">Satisfied by {item.satisfiedBy ?? 'operator'} · {formatDateTime(item.satisfiedAt)}</p>}
+          </div>
+          {editable && <Input className="w-44" placeholder="Evidence ref" value={item.evidenceRef ?? ''} onChange={(event) => onChange(items.map((current, currentIndex) => currentIndex === index ? { ...current, evidenceRef: event.target.value } : current))} />}
+        </div>
+      })}
+    </CardContent>
+  </Card>
 }
 
 function EpisodesPanel({ episodes, editable, onChange }: { episodes: PatientEpisode[]; editable: boolean; onChange: (episodes: PatientEpisode[]) => void }) {
