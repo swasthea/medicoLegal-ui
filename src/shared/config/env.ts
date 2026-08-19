@@ -19,10 +19,11 @@ export function getEnvValue(name: string): string {
 }
 
 export const config = {
-  apiBaseUrl: getEnvValueWithFallback(
-    'VITE_MLC_MLR_API_BASE_URL',
-    import.meta.env.DEV ? '' : 'https://certificate.pomodoro.help',
-  ),
+  // Sourced entirely from .env.<mode> (see .env.example) — never hardcode a
+  // backend origin here. Every environment (development/staging/production/
+  // test) must define VITE_MLC_MLR_API_BASE_URL in its own env file so
+  // changing the URL never requires a code change.
+  apiBaseUrl: getEnvValue('VITE_MLC_MLR_API_BASE_URL'),
 } as const
 
 export type AppConfig = typeof config
