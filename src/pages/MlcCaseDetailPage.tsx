@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft, FileText, Link2, Plus, Save, Trash2 } from 'l
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Modal, Select, Spinner, Textarea } from '@/components/ui'
 import { useAmendMlr, useApproveMlr, useDiscardMlc, useGenerateMlr, useIssueMlr, useLinkDeathRegistration, useMlc, useMlrByMlc, useRejectMlr, useReissueMlr, useSubmitMlr, useTransitionMlc, useUpdateMlc } from '@/entities/mlc'
 import type { LegalChecklistItem, MlrDocument, PatientEpisode } from '@shared/types'
-import { activeAlerts, checklistProgress, formatDateTime, formatStatus, getErrorMessage, statusVariant } from './mlcUtils'
+import { activeAlerts, checklistProgress, formatDateTime, formatStatus, getErrorMessage, KNOWN_CHECKLIST_GATES, statusVariant } from './mlcUtils'
 
 const NEXT_STATES: Record<string, string[]> = {
   IDENTIFIED: ['REGISTERED', 'ESCALATED', 'CANCELLED'],
@@ -186,6 +186,16 @@ function ChecklistPanel({ items, editable, onChange, dirty, saving, onSave }: {
   onSave: () => void
 }) {
   const progress = checklistProgress(items)
+  const [newGateCode, setNewGateCode] = useState('')
+  const missingGates = KNOWN_CHECKLIST_GATES.filter((gate) => !items.some((item) => item.code === gate.code))
+
+  function addGate() {
+    const gate = missingGates.find((candidate) => candidate.code === newGateCode)
+    if (!gate) return
+    onChange([...items, { code: gate.code, description: gate.description, requiredAtStage: gate.requiredAtStage, mandatory: true, satisfied: false }])
+    setNewGateCode('')
+  }
+
   return <Card>
     <CardHeader className="flex-row items-center justify-between">
       <div>
@@ -200,6 +210,13 @@ function ChecklistPanel({ items, editable, onChange, dirty, saving, onSave }: {
       </div>
     </CardHeader>
     <CardContent className="space-y-2">
+      {editable && missingGates.length > 0 && <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border p-3">
+        <div className="min-w-56 flex-1">
+          <Select label="Add a gate not yet on this case" value={newGateCode} onChange={(event) => setNewGateCode(event.target.value)}
+            options={[{ label: 'Select a gate…', value: '' }, ...missingGates.map((gate) => ({ label: `${gate.description}${gate.requiredAtStage ? ` — required for ${formatStatus(gate.requiredAtStage)}` : ''}`, value: gate.code }))]} />
+        </div>
+        <Button variant="outline" size="sm" disabled={!newGateCode} onClick={addGate}><Plus className="h-4 w-4" /> Add gate</Button>
+      </div>}
       {items.length === 0 ? <EmptyState title="Checklist not returned" description="Reload the case to retrieve its legal gates." /> : items.map((item, index) => {
         const locked = Boolean(item.satisfied) // already-satisfied items stay read-only
         const checkable = editable && !locked

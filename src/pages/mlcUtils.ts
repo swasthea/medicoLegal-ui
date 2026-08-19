@@ -1,5 +1,25 @@
 import type { AlertItem, LegalChecklistItem } from '@shared/types'
 
+// Mirrors the gate codes MLCService.REQUIRED_FOR (backend) checks before each
+// transition. Cases created before a gate existed on the backend seed list
+// won't have it in legalChecklist yet — this lets an operator add it here
+// instead of needing a raw API call.
+export const KNOWN_CHECKLIST_GATES: Array<{ code: string; description: string; requiredAtStage?: string }> = [
+  { code: 'POLICE_NOTIFIED', description: 'Police station informed', requiredAtStage: 'REGISTERED' },
+  { code: 'FIR_FILED', description: 'First Information Report registered', requiredAtStage: 'REGISTERED' },
+  { code: 'NEXT_OF_KIN_INFORMED', description: 'Next of kin informed', requiredAtStage: 'REGISTERED' },
+  { code: 'POLICE_CASE_NUMBER', description: 'Police case number recorded (brought-dead)', requiredAtStage: 'REGISTERED' },
+  { code: 'PM_AUTHORIZED', description: 'Post-mortem authorized', requiredAtStage: 'POST_MORTEM_PENDING' },
+  { code: 'PM_COMPLETED', description: 'Post-mortem completed', requiredAtStage: 'POST_MORTEM_COMPLETED' },
+  { code: 'INQUEST_OPENED', description: 'Inquest opened', requiredAtStage: 'MLR_DRAFTED' },
+  { code: 'BODY_HANDED_OVER', description: 'Body handed over to family/police', requiredAtStage: 'MLR_DRAFTED' },
+  { code: 'INQUEST_CLOSED', description: 'Inquest closed', requiredAtStage: 'MLR_ISSUED' },
+  { code: 'IDENTIFICATION_CONFIRMED', description: 'Deceased identity confirmed', requiredAtStage: 'MLR_ISSUED' },
+  { code: 'IDENTITY_DOCUMENT_RETRIEVED', description: 'Identity document retrieved' },
+  { code: 'EVIDENCE_PRESERVED', description: 'Evidence preserved' },
+  { code: 'WITNESS_STATEMENT_RECORDED', description: 'Witness statement recorded' },
+]
+
 export function formatStatus(status?: string | null): string {
   if (!status) return 'Unknown'
   return status.toLowerCase().split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')

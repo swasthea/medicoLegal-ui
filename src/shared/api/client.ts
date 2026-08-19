@@ -61,8 +61,15 @@ apiClient.interceptors.request.use(async (request) => {
 apiClient.interceptors.response.use((response) => response, (error: AxiosError) => {
   if (error.response?.status === 401) {
     useAuthStore.getState().clearAuth()
-    if (typeof window !== 'undefined' && !window.location.pathname.endsWith('/login')) {
+    if (
+      typeof window !== 'undefined' &&
+      !window.location.pathname.endsWith('/login') &&
+      window.location.pathname !== '/medico-legal'
+    ) {
       // Standalone mode has no /login route — redirect to module root.
+      // Skipped when already there: setting href to the current path would
+      // hard-reload the page, which re-fires the same 401'd requests and
+      // reloads again — an infinite reload loop.
       window.location.href = '/medico-legal'
     }
   }

@@ -21,7 +21,7 @@ export function getEnvValue(name: string): string {
 export const config = {
   apiBaseUrl: getEnvValueWithFallback(
     'VITE_MLC_MLR_API_BASE_URL',
-    import.meta.env.DEV ? '' : 'https://certificate.pomodoro.help/',
+    import.meta.env.DEV ? '' : 'https://certificate.pomodoro.help',
   ),
 } as const
 
